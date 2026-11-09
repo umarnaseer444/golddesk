@@ -8,24 +8,41 @@
     "ema_slow": 200,
     "st_period": 10,
     "st_mult": 3.0,
-    "rsi_long": [50, 70],
-    "rsi_short": [30, 50],
+    "rsi_long": [
+      50,
+      70
+    ],
+    "rsi_short": [
+      30,
+      50
+    ],
     "garch_window": 1000,
     "refit_every": 24,
-    "vol_low_q": 0.10,
+    "vol_low_q": 0.1,
     "vol_high_q": 0.95,
     "sl_sigma": 2.0,
     "tp_sigma": 4.0,
-    "blocked_hours_utc": [21, 22, 23],
-    "fresh_signal_only": true
+    "blocked_hours_utc": [
+      21,
+      22,
+      23
+    ],
+    "fresh_signal_only": true,
+    "min_volume_ratio": 0.3
   },
   "risk": {
     "start_balance": 10000,
     "risk_pct": 1.0,
-    "spread_usd": 0.30
+    "spread_usd": 0.3
   },
   "dashboard": {
-    "chart_bars": 240,
+    "chart_bars": 300,
     "trade_rows": 40
+  },
+  "news": {
+    "currencies": [
+      "USD"
+    ],
+    "block_minutes": 30
   }
 }

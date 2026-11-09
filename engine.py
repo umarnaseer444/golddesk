@@ -31,10 +31,10 @@ def load_config():
 
 
 # ---------------------------------------------------------------- data
-def fetch_yahoo(symbol, period):
+def fetch_yahoo(symbol, period, interval="1h"):
     import yfinance as yf
 
-    df = yf.download(symbol, period=period, interval="1h",
+    df = yf.download(symbol, period=period, interval=interval,
                      auto_adjust=False, progress=False)
     if df is None or df.empty:
         raise RuntimeError(f"No data returned for {symbol}")
@@ -153,6 +153,8 @@ def build(df, cfg):
     q = df["sigma_pct"].rolling(500, min_periods=100)
     df["vol_lo"] = q.quantile(s["vol_low_q"])
     df["vol_hi"] = q.quantile(s["vol_high_q"])
+    v = df["volume"].replace(0, np.nan)
+    df["vol_ratio"] = (v / v.rolling(20, min_periods=5).mean()).fillna(1.0)
     return df
 
 
@@ -163,6 +165,7 @@ def checks(row, cfg):
     common = {
         "Volatility in range": bool(row.vol_lo <= row.sigma_pct <= row.vol_hi),
         "Trading hour": hr not in s["blocked_hours_utc"],
+        "Volume active": bool(row.vol_ratio >= s.get("min_volume_ratio", 0)),
     }
     lg = {
         "EMA50 above EMA200": bool(row.ema_fast > row.ema_slow),
@@ -183,6 +186,80 @@ def checks(row, cfg):
         **common,
     }
     return lg, sh
+
+
+# ------------------------------------------------------- multi-timeframe
+def closed(df, bar):
+    """Drop the still-forming last candle."""
+    now = pd.Timestamp.now(tz="UTC")
+    return df[df.index + bar <= now]
+
+
+def tf_summary(df, n_candles, bar):
+    d = df.copy()
+    d["ema_fast"], d["ema_slow"] = ema(d["close"], 50), ema(d["close"], 200)
+    m = ema(d["close"], 12) - ema(d["close"], 26)
+    d["macd_hist"] = m - ema(m, 9)
+    d["rsi"] = rsi(d["close"], 14)
+    d["st_dir"], d["st_line"] = supertrend(d, 10, 3.0)
+    dc = closed(d, bar)
+    r = dc.iloc[-1] if len(dc) else d.iloc[-1]
+    votes = {"EMA50>200": bool(r.ema_fast > r.ema_slow),
+             "Price>EMA200": bool(r.close > r.ema_slow),
+             "Supertrend up": bool(r.st_dir == 1),
+             "MACD>0": bool(r.macd_hist > 0)}
+    up = sum(votes.values())
+    bias = "Bullish" if up >= 3 else "Bearish" if up <= 1 else "Mixed"
+    rnd = lambda x: None if pd.isna(x) else round(float(x), 2)
+    return {
+        "bias": bias, "score": up, "votes": votes, "rsi": rnd(r.rsi),
+        "bar_sec": int(bar.total_seconds()),
+        "forming": bool(len(dc) < len(d)),
+        "candles": [[int(t.timestamp()), rnd(x.open), rnd(x.high), rnd(x.low),
+                     rnd(x.close), rnd(x.ema_fast), rnd(x.ema_slow),
+                     rnd(x.st_line), int(x.st_dir)]
+                    for t, x in d.tail(n_candles).iterrows()],
+    }
+
+
+def resample(df, rule):
+    o = df.resample(rule, label="left", closed="left").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last",
+         "volume": "sum"})
+    return o.dropna()
+
+
+def fetch_news(cfg):
+    """High-impact events this week (ForexFactory public feed)."""
+    url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "golddesk"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            ev = json.load(r)
+    except Exception as e:
+        print("News fetch failed:", e)
+        return None
+    cur = set(cfg["news"]["currencies"])
+    out = []
+    for e in ev:
+        if e.get("impact") == "High" and e.get("country") in cur:
+            t = pd.Timestamp(e["date"]).tz_convert("UTC")
+            out.append({"time": t.isoformat(), "title": e["title"],
+                        "country": e["country"],
+                        "forecast": e.get("forecast") or "",
+                        "previous": e.get("previous") or ""})
+    return sorted(out, key=lambda x: x["time"])
+
+
+def fetch_spot():
+    try:
+        req = urllib.request.Request("https://api.gold-api.com/price/XAU",
+                                     headers={"User-Agent": "golddesk"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return float(json.load(r)["price"])
+    except Exception as e:
+        print("Spot fetch failed:", e)
+        return None
 
 
 # ------------------------------------------------------------ backtest
@@ -314,27 +391,48 @@ def main():
     a = ap.parse_args()
     cfg = load_config()
 
+    sym = cfg["data"]["symbol"]
     if a.sample:
         df, source = sample_data(), "Synthetic sample data (test)"
+        m15 = df.tail(2000)
+        d1 = resample(df, "1D")
     else:
-        df = fetch_yahoo(cfg["data"]["symbol"], cfg["data"]["period"])
-        source = f"Yahoo Finance {cfg['data']['symbol']} (1h)"
+        df = fetch_yahoo(sym, cfg["data"]["period"], "1h")
+        m15 = fetch_yahoo(sym, "60d", "15m")
+        d1 = fetch_yahoo(sym, "3y", "1d")
+        source = f"Yahoo Finance {sym}"
+    H = pd.Timedelta
+    h4 = resample(df, "4h")
+    n = cfg["dashboard"]["chart_bars"]
+    tfs = {"M15": tf_summary(m15, n, H(minutes=15)),
+           "H1": tf_summary(df, n, H(hours=1)),
+           "H4": tf_summary(h4, n, H(hours=4)),
+           "D1": tf_summary(d1, n, H(days=1))}
+    live_fut = float(m15["close"].iloc[-1]) if len(m15) else float(df["close"].iloc[-1])
+    df = closed(df, H(hours=1))       # strategy uses closed H1 bars only
+    news = None if a.sample else fetch_news(cfg)
+    spot = None if a.sample else fetch_spot()
 
     df = build(df, cfg)
     trades, open_trade, curve, final = simulate(df, cfg)
     st = stats(trades, curve, cfg["risk"]["start_balance"], final)
     last = df.iloc[-1]
     lg, sh = checks(last, cfg)
+    now = pd.Timestamp.now(tz="UTC")
+    win = pd.Timedelta(minutes=cfg["news"]["block_minutes"])
+    near = [e for e in (news or [])
+            if abs(pd.Timestamp(e["time"]) - now) <= win]
+    lg["No high-impact news"] = sh["No high-impact news"] = not near
     bias = ("BUY setup" if all(lg.values()) else
             "SELL setup" if all(sh.values()) else "No setup")
 
-    tail = df.tail(cfg["dashboard"]["chart_bars"])
+    tail = df.tail(n)
     rnd = lambda x: None if pd.isna(x) else round(float(x), 2)
     out = {
         "updated": datetime.now(timezone.utc).isoformat(timespec="minutes"),
         "last_bar": df.index[-1].isoformat(),
         "source": source,
-        "price": rnd(last.close),
+        "price": rnd(live_fut),
         "change_24h_pct": rnd((last.close / df["close"].iloc[-25] - 1) * 100),
         "bias": bias,
         "indicators": {
@@ -353,7 +451,13 @@ def main():
                      rnd(r.close), rnd(r.ema_fast), rnd(r.ema_slow),
                      rnd(r.st_line), int(r.st_dir)]
                     for t, r in tail.iterrows()],
-        "settings": cfg["strategy"] | cfg["risk"],
+        "timeframes": tfs,
+        "news": news or [],
+        "news_ok": news is not None,
+        "spot": spot,
+        "basis": rnd(live_fut - spot) if spot else 0,
+        "futures_last": rnd(live_fut),
+        "settings": cfg["strategy"] | cfg["risk"] | {"news_block_min": cfg["news"]["block_minutes"]},
     }
 
     prev = None
@@ -363,6 +467,13 @@ def main():
                 prev = json.load(f)
         except Exception:
             pass
+    # Yahoo futures are ~10 min delayed, so one spot-vs-futures reading is
+    # noisy. Keep recent readings and use their median as the basis.
+    hist = list((prev or {}).get("basis_hist", []))
+    if spot:
+        hist = (hist + [round(live_fut - spot, 2)])[-16:]
+    out["basis_hist"] = hist
+    out["basis"] = round(float(np.median(hist)), 2) if hist else 0.0
     notify(prev, out)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:

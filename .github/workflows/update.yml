@@ -2,7 +2,7 @@ name: Update Gold Desk
 
 on:
   schedule:
-    - cron: "7 * * * 0-5"   # every hour at :07 UTC, Sun–Fri (gold market hours)
+    - cron: "*/15 * * * 0-5"   # every 15 min, Sun–Fri (UTC)
   workflow_dispatch:        # "Run workflow" button for a manual update
 
 permissions:
