@@ -56,6 +56,11 @@
   details pre{margin-top:10px;font-size:12px;white-space:pre-wrap;color:var(--muted)}
   .note{font-size:11px;color:var(--muted);text-align:center;margin-top:8px}
   .err{color:var(--down);font-size:14px}
+  .live{font-size:12px;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#555}
+  .dot.on{background:var(--up);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .flash-up{color:var(--up)!important} .flash-dn{color:var(--down)!important}
 </style>
 </head>
 <body>
@@ -64,6 +69,7 @@
     <div class="brand">Gold Desk</div>
     <div class="price mono" id="price">—</div>
     <div class="chg" id="chg"></div>
+    <div class="live" id="live"><span class="dot"></span><span id="livetxt">Connecting to live price…</span></div>
   </div>
   <div class="meta">
     <div id="updated">Loading…</div>
@@ -124,7 +130,33 @@ const fmt = (n, d=2) => n == null ? "—" : Number(n).toLocaleString("en-US",{mi
 const ago = iso => { const m = Math.round((Date.now()-new Date(iso))/60000);
   return m < 1 ? "just now" : m < 60 ? m+" min ago" : Math.round(m/60)+" h ago"; };
 const local = iso => new Date(iso).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
-let D = null, tab = "long", chart, eqChart;
+let D = null, tab = "long", chart, eqChart, LIVE = null, liveAt = 0;
+
+// Live spot XAU price (gold-api.com, free, no key). Signals still use closed 1H bars.
+async function tick(){
+  try{
+    const r = await fetch("https://api.gold-api.com/price/XAU",{cache:"no-store"});
+    if(!r.ok) throw 0;
+    const j = await r.json(), p = j.price, el = $("price");
+    if (LIVE != null && p !== LIVE){
+      el.classList.remove("flash-up","flash-dn"); void el.offsetWidth;
+      el.classList.add(p > LIVE ? "flash-up" : "flash-dn");
+      setTimeout(()=>el.classList.remove("flash-up","flash-dn"), 900);
+    }
+    LIVE = p; liveAt = Date.now();
+    el.textContent = "$"+fmt(p);
+    $("live").querySelector(".dot").classList.add("on");
+    paintLive();
+  }catch(e){
+    $("live").querySelector(".dot").classList.remove("on");
+    $("livetxt").textContent = "Live price unavailable — showing last hourly close";
+  }
+}
+function paintLive(){
+  if (LIVE == null) return;
+  const s = Math.round((Date.now()-liveAt)/1000);
+  $("livetxt").textContent = "LIVE spot · "+(s<2?"now":s+"s ago")+(D?" · chart (futures) "+fmt(D.price):"");
+}
 
 function theme(el, h){
   return LightweightCharts.createChart(el,{height:h,
@@ -171,11 +203,11 @@ function drawChecks(){
 }
 
 function render(){
-  $("price").textContent = "$"+fmt(D.price);
+  if (!LIVE) $("price").textContent = "$"+fmt(D.price);
   const ch = D.change_24h_pct; $("chg").textContent = (ch>=0?"▲ ":"▼ ")+fmt(Math.abs(ch))+"% 24h";
   $("chg").className = "chg "+(ch>=0?"pos":"neg");
   $("updated").textContent = "Updated "+ago(D.updated);
-  $("src").textContent = D.source;
+  $("src").textContent = "Signals: hourly"; $("src").title = D.source;
   $("lastbar").textContent = "Last closed bar "+local(D.last_bar);
   const b = $("bias"); b.textContent = D.bias;
   b.className = "pill "+(D.bias.startsWith("BUY")?"buy":D.bias.startsWith("SELL")?"sell":"");
@@ -225,7 +257,9 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
 $("reload").onclick = load;
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden) load(); });
 setInterval(load, 5*60*1000);
-load();
+setInterval(()=>{ if(!document.hidden) tick(); }, 5000);
+setInterval(paintLive, 1000);
+load(); tick();
 </script>
 </body>
 </html>
