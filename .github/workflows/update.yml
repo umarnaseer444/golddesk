@@ -1,0 +1,36 @@
+name: Update Gold Desk
+
+on:
+  schedule:
+    - cron: "7 * * * 0-5"   # every hour at :07 UTC, Sun–Fri (gold market hours)
+  workflow_dispatch:        # "Run workflow" button for a manual update
+
+permissions:
+  contents: write
+
+concurrency:
+  group: golddesk
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run engine
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python engine.py
+      - name: Commit new data
+        run: |
+          git config user.name "golddesk-bot"
+          git config user.email "golddesk-bot@users.noreply.github.com"
+          git add docs/data.json
+          git diff --cached --quiet || git commit -m "data: $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git push

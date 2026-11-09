@@ -1,0 +1,4 @@
+numpy>=1.26
+pandas>=2.1
+arch>=6.3
+yfinance>=0.2.40

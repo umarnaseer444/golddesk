@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="robots" content="noindex,nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Gold Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root{
+    --bg:#0f1115;--card:#171a21;--line:#262a33;--text:#e8e6e1;--muted:#8b909a;
+    --gold:#d4a843;--up:#2fbf71;--down:#e5534b;--radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:15px/1.45 Inter,system-ui,sans-serif;
+    padding:calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 28px);
+    max-width:720px;margin:0 auto;-webkit-font-smoothing:antialiased}
+  .mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+  header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+  .brand{font-weight:700;letter-spacing:.02em;color:var(--gold);font-size:14px;text-transform:uppercase}
+  .price{font-size:34px;font-weight:700;line-height:1.1;margin-top:4px}
+  .chg{font-size:14px;font-weight:600}
+  .meta{text-align:right;font-size:12px;color:var(--muted)}
+  .refresh{margin-top:6px;background:var(--card);border:1px solid var(--line);color:var(--text);
+    border-radius:999px;padding:6px 12px;font:inherit;font-size:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+  .card h2{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+  .bias{display:flex;align-items:center;justify-content:space-between}
+  .pill{font-weight:700;font-size:15px;padding:6px 12px;border-radius:999px;background:#262a33}
+  .pill.buy{background:rgba(47,191,113,.15);color:var(--up)}
+  .pill.sell{background:rgba(229,83,75,.15);color:var(--down)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .kv .k{font-size:11px;color:var(--muted)} .kv .v{font-size:15px;font-weight:600}
+  .tabs{display:flex;gap:6px;margin-bottom:10px}
+  .tabs button{flex:1;background:transparent;border:1px solid var(--line);color:var(--muted);
+    border-radius:10px;padding:8px;font:inherit;font-size:13px;font-weight:600}
+  .tabs button.on{background:#262a33;color:var(--text)}
+  ul.checks{list-style:none} ul.checks li{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+  ul.checks li:last-child{border:0}
+  .ok{color:var(--up);font-weight:700} .no{color:var(--down);font-weight:700}
+  #chart,#equity{width:100%;height:280px} #equity{height:170px}
+  .legend{display:flex;gap:12px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:4px;vertical-align:middle}
+  .trade{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .trade:last-child{border:0}
+  .side{font-weight:700;font-size:12px;padding:2px 7px;border-radius:6px;align-self:center}
+  .side.BUY{background:rgba(47,191,113,.15);color:var(--up)} .side.SELL{background:rgba(229,83,75,.15);color:var(--down)}
+  .t-sub{grid-column:2;color:var(--muted);font-size:12px}
+  .pnl{text-align:right;font-weight:600} .pos{color:var(--up)} .neg{color:var(--down)}
+  .empty{color:var(--muted);font-size:14px}
+  details summary{cursor:pointer;color:var(--muted);font-size:13px}
+  details pre{margin-top:10px;font-size:12px;white-space:pre-wrap;color:var(--muted)}
+  .note{font-size:11px;color:var(--muted);text-align:center;margin-top:8px}
+  .err{color:var(--down);font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="brand">Gold Desk</div>
+    <div class="price mono" id="price">—</div>
+    <div class="chg" id="chg"></div>
+  </div>
+  <div class="meta">
+    <div id="updated">Loading…</div>
+    <div id="src"></div>
+    <button class="refresh" id="reload">↻ Refresh</button>
+  </div>
+</header>
+
+<div id="msg"></div>
+
+<section class="card bias">
+  <div><h2 style="margin:0 0 4px">Signal now</h2><div class="empty" id="lastbar"></div></div>
+  <span class="pill" id="bias">—</span>
+</section>
+
+<section class="card">
+  <h2>Paper position</h2>
+  <div id="open"></div>
+</section>
+
+<section class="card">
+  <h2>Entry checklist</h2>
+  <div class="tabs"><button data-t="long" class="on">Buy</button><button data-t="short">Sell</button></div>
+  <ul class="checks" id="checks"></ul>
+</section>
+
+<section class="card">
+  <h2>XAU · 1H</h2>
+  <div id="chart"></div>
+  <div class="legend"><span><i style="background:#d4a843"></i>EMA50</span><span><i style="background:#6d8bd6"></i>EMA200</span><span><i style="background:#2fbf71"></i>Supertrend</span></div>
+</section>
+
+<section class="card">
+  <h2>Indicators</h2>
+  <div class="grid" id="ind"></div>
+</section>
+
+<section class="card">
+  <h2 id="stats-h">Paper results</h2>
+  <div class="grid" id="stats" style="margin-bottom:12px"></div>
+  <div id="equity"></div>
+</section>
+
+<section class="card">
+  <h2>Recent trades</h2>
+  <div id="trades"></div>
+</section>
+
+<section class="card">
+  <details><summary>Settings in use</summary><pre class="mono" id="settings"></pre></details>
+</section>
+
+<p class="note">Paper signals only — not connected to any broker. Updates hourly.</p>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = (n, d=2) => n == null ? "—" : Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const ago = iso => { const m = Math.round((Date.now()-new Date(iso))/60000);
+  return m < 1 ? "just now" : m < 60 ? m+" min ago" : Math.round(m/60)+" h ago"; };
+const local = iso => new Date(iso).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+let D = null, tab = "long", chart, eqChart;
+
+function theme(el, h){
+  return LightweightCharts.createChart(el,{height:h,
+    layout:{background:{color:"transparent"},textColor:"#8b909a",fontFamily:"Inter"},
+    grid:{vertLines:{color:"#1e222a"},horzLines:{color:"#1e222a"}},
+    rightPriceScale:{borderColor:"#262a33"},timeScale:{borderColor:"#262a33",timeVisible:true},
+    crosshair:{mode:0},handleScroll:true,handleScale:true});
+}
+
+function drawChart(){
+  const el = $("chart"); el.innerHTML = "";
+  chart = theme(el, 280);
+  const c = D.candles;
+  const cs = chart.addCandlestickSeries({upColor:"#2fbf71",downColor:"#e5534b",borderVisible:false,wickUpColor:"#2fbf71",wickDownColor:"#e5534b"});
+  cs.setData(c.map(r=>({time:r[0],open:r[1],high:r[2],low:r[3],close:r[4]})));
+  const line = (i,color,w=1.5) => { const s = chart.addLineSeries({color,lineWidth:w,priceLineVisible:false,lastValueVisible:false});
+    s.setData(c.filter(r=>r[i]!=null).map(r=>({time:r[0],value:r[i]}))); return s; };
+  line(5,"#d4a843"); line(6,"#6d8bd6");
+  const st = chart.addLineSeries({lineWidth:1,lineStyle:2,priceLineVisible:false,lastValueVisible:false});
+  st.setData(c.filter(r=>r[7]!=null).map(r=>({time:r[0],value:r[7],color:r[8]===1?"#2fbf71":"#e5534b"})));
+  const ot = D.open_trade;
+  if (ot){
+    cs.createPriceLine({price:ot.entry,color:"#d4a843",lineWidth:1,title:"Entry"});
+    cs.createPriceLine({price:ot.sl,color:"#e5534b",lineWidth:1,lineStyle:2,title:"SL"});
+    cs.createPriceLine({price:ot.tp,color:"#2fbf71",lineWidth:1,lineStyle:2,title:"TP"});
+  }
+  const marks = D.trades.filter(t=>new Date(t.time)/1000 >= c[0][0]).map(t=>({
+    time:Math.floor(new Date(t.time)/1000), position:t.side==="BUY"?"belowBar":"aboveBar",
+    color:t.side==="BUY"?"#2fbf71":"#e5534b", shape:t.side==="BUY"?"arrowUp":"arrowDown", text:t.side[0]}));
+  if (ot) marks.push({time:Math.floor(new Date(ot.time)/1000),position:ot.side==="BUY"?"belowBar":"aboveBar",color:"#d4a843",shape:ot.side==="BUY"?"arrowUp":"arrowDown",text:"open"});
+  marks.sort((a,b)=>a.time-b.time); cs.setMarkers(marks);
+  chart.timeScale().setVisibleLogicalRange({from:c.length-90,to:c.length+2});
+
+  const e = $("equity"); e.innerHTML = "";
+  eqChart = theme(e, 170);
+  const a = eqChart.addAreaSeries({lineColor:"#d4a843",topColor:"rgba(212,168,67,.25)",bottomColor:"rgba(212,168,67,0)",lineWidth:2,priceLineVisible:false});
+  a.setData(D.equity.map(p=>({time:Math.floor(new Date(p[0])/1000),value:p[1]})));
+  eqChart.timeScale().fitContent();
+}
+
+function drawChecks(){
+  $("checks").innerHTML = Object.entries(D.checks[tab]).map(([k,v]) =>
+    `<li><span>${k}</span><span class="${v?"ok":"no"}">${v?"✓":"✗"}</span></li>`).join("");
+}
+
+function render(){
+  $("price").textContent = "$"+fmt(D.price);
+  const ch = D.change_24h_pct; $("chg").textContent = (ch>=0?"▲ ":"▼ ")+fmt(Math.abs(ch))+"% 24h";
+  $("chg").className = "chg "+(ch>=0?"pos":"neg");
+  $("updated").textContent = "Updated "+ago(D.updated);
+  $("src").textContent = D.source;
+  $("lastbar").textContent = "Last closed bar "+local(D.last_bar);
+  const b = $("bias"); b.textContent = D.bias;
+  b.className = "pill "+(D.bias.startsWith("BUY")?"buy":D.bias.startsWith("SELL")?"sell":"");
+
+  const o = D.open_trade;
+  $("open").innerHTML = o ? `
+    <div class="trade" style="border:0;padding:0 0 10px">
+      <span class="side ${o.side}">${o.side}</span><span class="mono">@ ${fmt(o.entry)}</span>
+      <span class="pnl ${o.unrealized>=0?"pos":"neg"}">${o.unrealized>=0?"+":""}$${fmt(o.unrealized)}</span>
+      <span class="t-sub">Opened ${local(o.time)} · risk $${fmt(o.risk_usd,0)}</span></div>
+    <div class="grid"><div class="kv"><div class="k">Stop loss</div><div class="v mono neg">${fmt(o.sl)}</div></div>
+      <div class="kv"><div class="k">Take profit</div><div class="v mono pos">${fmt(o.tp)}</div></div>
+      <div class="kv"><div class="k">Price</div><div class="v mono">${fmt(D.price)}</div></div></div>`
+    : `<div class="empty">Flat — waiting for the next setup.</div>`;
+
+  drawChecks();
+  $("ind").innerHTML = Object.entries(D.indicators).map(([k,v]) =>
+    `<div class="kv"><div class="k">${k}</div><div class="v mono">${typeof v==="number"?fmt(v, k.includes("σ")?3:2):v}</div></div>`).join("");
+
+  if (D.test_from) $("stats-h").textContent = "Paper results since "+new Date(D.test_from).toLocaleDateString([], {month:"short",year:"numeric"});
+  const s = D.stats;
+  const S = [["Return",(s.return_pct>=0?"+":"")+fmt(s.return_pct,1)+"%"],["Profit factor",fmt(s.profit_factor)],["Max DD",fmt(s.max_dd_pct,1)+"%"],
+             ["Trades",s.trades],["Win rate",fmt(s.win_rate,1)+"%"],["Sharpe",fmt(s.sharpe)]];
+  $("stats").innerHTML = S.map(([k,v])=>`<div class="kv"><div class="k">${k}</div><div class="v mono">${v}</div></div>`).join("");
+
+  $("trades").innerHTML = D.trades.length ? D.trades.slice(0,15).map(t=>`
+    <div class="trade"><span class="side ${t.side}">${t.side}</span>
+      <span class="mono">${fmt(t.entry)} → ${fmt(t.exit)}</span>
+      <span class="pnl ${t.pnl>=0?"pos":"neg"}">${t.R>=0?"+":""}${fmt(t.R)}R</span>
+      <span class="t-sub">${local(t.time)} · ${t.reason}</span></div>`).join("") : `<div class="empty">No trades yet.</div>`;
+
+  $("settings").textContent = JSON.stringify(D.settings,null,1).replace(/[{}"]/g,"").trim();
+  drawChart();
+}
+
+async function load(){
+  try{
+    const r = await fetch("data.json?t="+Date.now(),{cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    D = await r.json(); $("msg").innerHTML = ""; render();
+  }catch(e){ $("msg").innerHTML = `<div class="card err">Couldn't load data (${e.message}). Pull to refresh or try again shortly.</div>`; }
+}
+
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); tab=b.dataset.t; drawChecks(); });
+$("reload").onclick = load;
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) load(); });
+setInterval(load, 5*60*1000);
+load();
+</script>
+</body>
+</html>
